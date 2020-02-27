@@ -52,10 +52,28 @@
 #   define CEREAL_USED __attribute__ ((__used__))
 #endif
 
+#ifdef __CLING__
+#include <unordered_map>
+#include <typeindex>
+#include <typeinfo>
+#endif
+
 namespace cereal
 {
   namespace detail
   {
+#ifdef __CLING__
+    // cppyy has trouble keeping track of static variables in static functions
+    // in class scope,
+    // https://bitbucket.org/wlav/cppyy/issues/201/scope-of-static-variables.
+    // However, it can track static variables in global scope just fine so we
+    // emulate static variables by moving them into global scope in this map.
+    auto& getStatics() {
+      static std::unordered_map<std::type_index, void*> statics = {};
+      return statics;
+    }
+#endif
+
     //! A static, pre-execution object
     /*! This class will create a single copy (singleton) of some
         type and ensures that merely referencing this type will
@@ -73,7 +91,15 @@ namespace cereal
           static T t;
           //! Forces instantiation at pre-execution time
           (void)instance;
+
+#ifdef __CLING__
+          if (getStatics().find(std::type_index(typeid(T))) == getStatics().end()) {
+            getStatics()[std::type_index(typeid(T))] = &t;
+          }
+          return *static_cast<T*>(getStatics()[std::type_index(typeid(T))]);
+#else
           return t;
+#endif
         }
 
         StaticObject( StaticObject const & /*other*/ ) {}
